@@ -1,0 +1,74 @@
+map $http_x_forwarded_proto $fwd_proto {
+    default $http_x_forwarded_proto;
+    ''      $scheme;
+}
+
+server {
+    listen ${PORT};
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    client_max_body_size 100m;
+
+    gzip on;
+    gzip_types text/css application/javascript text/javascript application/json image/svg+xml application/manifest+json;
+    gzip_min_length 1024;
+
+    # Health must test Django itself, not only nginx.
+    location = /health {
+        proxy_pass http://127.0.0.1:8000/health/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $fwd_proto;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 10s;
+    }
+
+    # Django API/admin/media/static all stay on the same public origin.
+    location ~ ^/(plat|django-admin|media|static)(/|$) {
+        proxy_pass http://127.0.0.1:8000$request_uri;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $fwd_proto;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+        proxy_buffering on;
+    }
+
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    location = /sw.js {
+        add_header Cache-Control "no-cache";
+        try_files $uri =404;
+    }
+    location = /manifest.webmanifest {
+        add_header Cache-Control "no-cache";
+        default_type application/manifest+json;
+        try_files $uri =404;
+    }
+    location = /version.json {
+        add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0";
+        default_type application/json;
+        try_files $uri =404;
+    }
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/ /index.html;
+    }
+}
