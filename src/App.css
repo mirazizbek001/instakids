@@ -1,0 +1,388 @@
+@import url('https://fonts.googleapis.com/css2?family=Grand+Hotel&family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color-scheme: light;
+  background: #f5f5f7;
+}
+
+html.dark {
+  color-scheme: dark;
+  background: #0b1224;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f5f5f7;
+}
+
+html.dark body {
+  background: #0b1224;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.auth-page {
+  background:
+    radial-gradient(circle at 10% 15%, rgba(255, 0, 128, .10), transparent 28%),
+    radial-gradient(circle at 90% 10%, rgba(93, 76, 255, .13), transparent 30%),
+    linear-gradient(145deg, #f8f8fb 0%, #eef0f5 100%);
+}
+
+html.dark .auth-page {
+  background:
+    radial-gradient(circle at 12% 12%, rgba(245, 164, 0, .12), transparent 25%),
+    radial-gradient(circle at 88% 8%, rgba(59, 130, 246, .18), transparent 32%),
+    linear-gradient(145deg, #070b19 0%, #0b1224 58%, #101a30 100%);
+}
+
+.auth-card {
+  backdrop-filter: blur(18px);
+}
+
+html.dark .auth-card {
+  background: rgba(16, 26, 48, .94) !important;
+  border-color: #263756 !important;
+}
+
+html.dark .auth-card input {
+  background: #17223b !important;
+  border-color: #38517b !important;
+}
+
+html.dark .auth-card input:focus {
+  border-color: #f5a400 !important;
+  box-shadow: 0 0 0 3px rgba(245, 164, 0, .12);
+}
+
+.font-logo {
+  font-family: "Grand Hotel", cursive;
+}
+
+.ig-sidebar {
+  box-shadow: 8px 0 30px rgba(0, 0, 0, .025);
+}
+
+html.dark .ig-sidebar {
+  box-shadow: 8px 0 30px rgba(3, 8, 24, .35);
+}
+
+html.dark .app-page-shell {
+  background: #0b1224;
+}
+
+html.dark .ig-sidebar button:hover {
+  background: transparent;
+}
+
+.ig-sidebar button {
+  transition: transform .16s ease;
+}
+
+.ig-sidebar button:hover {
+  transform: scale(1.04);
+}
+
+html.dark .ig-sidebar button[aria-current='page'] {
+  color: #f5a400;
+}
+
+.app-page-shell {
+  min-height: 100dvh;
+}
+
+/* Light theme surfaces: softer than pure white while keeping content readable. */
+html:not(.dark) .ig-story-strip,
+html:not(.dark) .ig-media,
+html:not(.dark) .app-card {
+  border-color: #e7e7eb;
+}
+
+
+/* Desktop Instagram-like sidebar: compact by default, expands on hover without changing the page theme. */
+.ig-sidebar {
+  width: 76px;
+  transition: width .22s ease, box-shadow .22s ease;
+  overflow: hidden;
+}
+
+.ig-sidebar:hover {
+  width: 244px;
+  box-shadow: 14px 0 34px rgba(0, 0, 0, .08);
+}
+
+.sidebar-label {
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: opacity .16s ease, width .2s ease;
+}
+
+.ig-sidebar:hover .sidebar-label {
+  opacity: 1;
+  width: 160px;
+}
+
+.app-page-shell {
+  margin-left: 76px;
+  transition: margin-left .22s ease;
+}
+
+.ig-sidebar:hover~.app-page-shell {
+  margin-left: 76px;
+}
+
+/* Reels follows the active theme while media tiles remain dark. */
+.reels-page {
+  background: #fff !important;
+  color: #171717;
+}
+
+html.dark .reels-page {
+  background: #0b1224 !important;
+  color: #fff;
+}
+
+/* Profile styling close to the supplied mobile reference. */
+.profile-page {
+  max-width: 935px;
+}
+
+.profile-dark-surface {
+  background: #0b1224;
+  color: #fff;
+}
+
+@media (max-width: 767px) {
+  .app-page-shell .ig-feed {
+    width: calc(100% - 24px);
+  }
+
+  .app-page-shell .message-page {
+    height: calc(var(--message-viewport-height, 100dvh) - 120px);
+  }
+
+  .conversation-open .app-page-shell .message-page {
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    height: calc(var(--message-viewport-height, 100dvh) + var(--message-keyboard-inset, 0px));
+  }
+
+  .conversation-open .message-pane {
+    padding-bottom: 5rem;
+  }
+
+  .conversation-open .message-composer {
+    position: fixed;
+    right: 12px;
+    bottom: max(calc(var(--message-keyboard-inset, 0px) + 8px), env(safe-area-inset-bottom));
+    left: 12px;
+    z-index: 45;
+    margin: 0;
+    padding: 4px 8px !important;
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-radius: 9999px;
+  }
+
+  .app-page-shell {
+    margin-left: 0;
+  }
+
+  .ig-sidebar {
+    display: none !important;
+  }
+
+  .profile-page {
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 0;
+  }
+
+  .mobile-profile {
+    min-height: calc(100dvh - 56px);
+  }
+}
+
+.profile-page {
+  background: #fff;
+  color: #171717;
+  min-height: calc(100dvh - 56px);
+}
+
+.profile-page .text-neutral-500 {
+  color: #737373 !important;
+}
+
+.profile-page .border-neutral-200 {
+  border-color: #e5e5e5 !important;
+}
+
+.profile-page .bg-neutral-100 {
+  background: #f5f5f5 !important;
+}
+
+.profile-page button {
+  transition: transform .16s ease;
+}
+
+.profile-page button:hover {
+  background-color: transparent;
+  transform: scale(1.03);
+}
+
+.profile-page .story-ring {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #d946ef;
+}
+
+.profile-page .bg-black {
+  background: #080b0f !important;
+}
+
+.profile-mobile-bio {
+  display: none;
+}
+
+html.dark .profile-page {
+  background: #0b1224;
+  color: #fff;
+}
+
+html.dark .profile-page .text-neutral-500 {
+  color: #9aa3af !important;
+}
+
+html.dark .profile-page .border-neutral-200 {
+  border-color: #252b33 !important;
+}
+
+html.dark .profile-page .bg-neutral-100 {
+  background: #171c22 !important;
+}
+
+html.dark .profile-page .dark\:border-neutral-800 {
+  border-color: #1d2a45 !important;
+}
+
+html.dark .profile-page .dark\:bg-neutral-800 {
+  background: #17223b !important;
+}
+
+html.dark .profile-page .dark\:bg-\[\#26292d\] {
+  background: #17223b !important;
+}
+
+html.dark .profile-page .dark\:bg-\[\#17191c\] {
+  background: #17223b !important;
+}
+
+html.dark .profile-page button:hover {
+  background-color: transparent;
+}
+
+html.dark .profile-page .story-ring {
+  box-shadow: 0 0 0 2px #0b1224, 0 0 0 4px #d946ef;
+}
+
+@media (max-width: 767px) {
+  .profile-page {
+    margin: 0;
+    padding-bottom: 68px;
+  }
+
+  .profile-page>.flex:first-child {
+    align-items: flex-start;
+    padding: 18px 16px 0;
+    gap: 8px;
+  }
+
+  .profile-page>.flex:first-child>.shrink-0 {
+    flex: 0 0 84px;
+  }
+
+  .profile-page>.flex:first-child h1 {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 16px;
+  }
+
+  .profile-page>.flex:first-child .flex-1 {
+    min-width: 0;
+  }
+
+  .profile-inline-bio {
+    display: none;
+  }
+
+  .profile-mobile-bio {
+    display: block;
+  }
+
+  .profile-page>.flex:first-child .my-5 {
+    margin-top: 12px;
+    margin-bottom: 0;
+    gap: 10px;
+    font-size: 12px;
+  }
+
+  .profile-page>.flex:first-child .mt-3 {
+    margin-top: 8px;
+  }
+
+  .profile-page>.flex:first-child+.mt-4 {
+    padding: 0 16px;
+  }
+
+  .profile-page>.mt-4.flex {
+    width: calc(100% - 32px);
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+
+  .profile-page>.mt-5.flex {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+
+  .profile-page>.mt-5.flex button {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .profile-page>.mt-5.flex+* {
+    min-width: 0;
+  }
+
+  .profile-page>.mt-5.flex+.mt-8 {
+    margin-top: 20px;
+  }
+
+  .profile-page>.mt-5.flex {
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+
+  .profile-page>.mt-5.flex>button {
+    flex: 1 0 33.333%;
+    min-width: 0;
+  }
+
+  .profile-page .mobile-profile-actions {
+    display: grid;
+  }
+}
