@@ -1464,44 +1464,122 @@ export function AppProvider({ children }) {
     },
     like: (id, kind = "post") => {
       if (blockRestrictedAction()) return false;
-      return save((d) => {
-        const arr =
+      const arr =
+        kind === "reel" ? dbRef.current.reels : kind === "story" ? dbRef.current.stories : dbRef.current.posts;
+      if (!arr.some((item) => item.id === id)) return false;
+      const saved = save((d) => {
+        const items =
           kind === "reel" ? d.reels : kind === "story" ? d.stories : d.posts;
-        const item = arr.find((x) => x.id === id);
+        const item = items.find((x) => x.id === id);
         if (!item) return;
         item.likes ||= [];
         if (item.likes.includes(meId))
           item.likes = item.likes.filter((x) => x !== meId);
-        else {
-          item.likes.push(meId);
-          notify(
-            d,
-            item.userId,
-            kind === "story" ? "story_like" : "like",
-            kind === "story" ? { storyId: id } : { postId: id },
-          );
-        }
-      });
+        else item.likes.push(meId);
+      }, { skipRemoteSync: true });
+      if (!saved) return false;
+      sendFastAction({ action: "like", itemId: id, kind })
+        .then(() => A.refreshSocialUpdates())
+        .catch(async (error) => {
+          await A.refreshSocialUpdates();
+          say(error.message);
+        });
+      return true;
     },
     comment: (id, text, kind = "post") => {
       if (blockRestrictedAction()) return false;
-      if (kidsUnsafeText(text)) {
+      const commentText = text.trim();
+      if (!commentText || commentText.length > 500 || kidsUnsafeText(commentText)) {
         say("Haqoratli yoki 7+ ga mos bo‘lmagan izoh yuborilmadi.");
         return false;
       }
-      return save((d) => {
+      const arr = kind === "reel" ? dbRef.current.reels : dbRef.current.posts;
+      if (!arr.some((item) => item.id === id)) return false;
+      const comment = { id: uid(), userId: meId, text: commentText, t: Date.now() };
+      const saved = save((d) => {
         const arr = kind === "reel" ? d.reels : d.posts;
         const item = arr.find((x) => x.id === id);
         if (!item) return;
         item.comments ||= [];
-        item.comments.push({ id: uid(), userId: meId, text, t: Date.now() });
-        notify(
-          d,
-          item.userId,
-          "comment",
-          kind === "reel" ? { reelId: id, text } : { postId: id, text },
+        item.comments.push(comment);
+      }, { skipRemoteSync: true });
+      if (!saved) return false;
+      sendFastAction({
+        action: "comment",
+        itemId: id,
+        kind,
+        commentId: comment.id,
+        text: comment.text,
+      })
+        .then(() => A.refreshSocialUpdates())
+        .catch(async (error) => {
+          await A.refreshSocialUpdates();
+          say(error.message);
+        });
+      return true;
+    },
+    editComment: (itemId, commentId, text, kind = "post") => {
+      if (blockRestrictedAction()) return false;
+      const updatedText = text.trim();
+      if (!updatedText || updatedText.length > 500 || kidsUnsafeText(updatedText)) {
+        say("Izoh 1–500 belgi bo‘lishi va 7+ xavfsizlik talabiga mos bo‘lishi kerak.");
+        return false;
+      }
+      const arr = kind === "reel" ? dbRef.current.reels : dbRef.current.posts;
+      const item = arr.find((entry) => entry.id === itemId);
+      const comment = item?.comments?.find((entry) => entry.id === commentId);
+      if (!comment || comment.userId !== meId) return false;
+      const saved = save((d) => {
+        const target = (kind === "reel" ? d.reels : d.posts).find(
+          (entry) => entry.id === itemId,
         );
-      });
+        const current = target?.comments?.find(
+          (entry) => entry.id === commentId,
+        );
+        if (current?.userId === meId) current.text = updatedText;
+      }, { skipRemoteSync: true });
+      if (!saved) return false;
+      sendFastAction({
+        action: "edit-comment",
+        itemId,
+        commentId,
+        kind,
+        text: updatedText,
+      })
+        .then(() => A.refreshSocialUpdates())
+        .catch(async (error) => {
+          await A.refreshSocialUpdates();
+          say(error.message);
+        });
+      return true;
+    },
+    deleteComment: (itemId, commentId, kind = "post") => {
+      const arr = kind === "reel" ? dbRef.current.reels : dbRef.current.posts;
+      const item = arr.find((entry) => entry.id === itemId);
+      const comment = item?.comments?.find((entry) => entry.id === commentId);
+      if (!comment || comment.userId !== meId) return false;
+      const saved = save((d) => {
+        const target = (kind === "reel" ? d.reels : d.posts).find(
+          (entry) => entry.id === itemId,
+        );
+        if (!target) return;
+        target.comments = (target.comments || []).filter(
+          (entry) => entry.id !== commentId || entry.userId !== meId,
+        );
+      }, { skipRemoteSync: true });
+      if (!saved) return false;
+      sendFastAction({
+        action: "delete-comment",
+        itemId,
+        commentId,
+        kind,
+      })
+        .then(() => A.refreshSocialUpdates())
+        .catch(async (error) => {
+          await A.refreshSocialUpdates();
+          say(error.message);
+        });
+      return true;
     },
     save: (id) =>
       save((d) => {
@@ -1845,7 +1923,7 @@ export function AppProvider({ children }) {
         }
       });
     },
-    refreshMessages: async () => {
+    refreshSocialUpdates: async () => {
       try {
         const since = Math.max(0, messageCursorRef.current - 3000);
         const response = await fetch(`/plat/social/updates/?since=${since}`, {
@@ -1857,6 +1935,37 @@ export function AppProvider({ children }) {
         const localId = (username) =>
           dbRef.current.users.find((user) => user.username === username)?.id ||
           username;
+        const restoreInteractions = (items) =>
+          (items || []).map((item) => ({
+            ...item,
+            likes: (item.likes || []).map(localId),
+            comments: (item.comments || []).map((comment) => ({
+              ...comment,
+              userId: localId(comment.userId),
+            })),
+          }));
+        const interactions = {
+          posts: restoreInteractions(remote.postInteractions),
+          reels: restoreInteractions(remote.reelInteractions),
+          stories: restoreInteractions(remote.storyInteractions),
+        };
+        const interactionsChanged = Object.entries(interactions).some(
+          ([key, updates]) => {
+            const localItems = new Map(
+              dbRef.current[key].map((item) => [String(item.id), item]),
+            );
+            return updates.some((update) => {
+              const item = localItems.get(String(update.id));
+              return (
+                item &&
+                (JSON.stringify(item.likes || []) !==
+                  JSON.stringify(update.likes) ||
+                  JSON.stringify(item.comments || []) !==
+                    JSON.stringify(update.comments))
+              );
+            });
+          },
+        );
         const current = dbRef.current.messages;
         const currentById = new Map(
           current.map((message) => [String(message.id), message]),
@@ -1963,6 +2072,7 @@ export function AppProvider({ children }) {
           );
         const changed =
           messagesChanged ||
+          interactionsChanged ||
           JSON.stringify(dbRef.current.follows) !== JSON.stringify(follows) ||
           JSON.stringify(dbRef.current.notifs) !== JSON.stringify(notifs) ||
           JSON.stringify(dbRef.current.deletedMessages) !==
@@ -1994,6 +2104,17 @@ export function AppProvider({ children }) {
             d.blockedByUsers = blockedByUsers;
             d.follows = follows;
             d.notifs = notifs;
+            Object.entries(interactions).forEach(([key, updates]) => {
+              const byId = new Map(
+                updates.map((item) => [String(item.id), item]),
+              );
+              d[key] = d[key].map((item) => {
+                const update = byId.get(String(item.id));
+                return update
+                  ? { ...item, likes: update.likes, comments: update.comments }
+                  : item;
+              });
+            });
           },
           { skipRemoteSync: true },
         );
@@ -2254,7 +2375,7 @@ export function AppProvider({ children }) {
       if (!document.hidden && !busy) {
         busy = true;
         try {
-          await A.refreshMessages();
+          await A.refreshSocialUpdates();
         } catch {
           /* ignore */
         } finally {

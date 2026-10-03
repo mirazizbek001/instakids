@@ -11,8 +11,8 @@ function HomePage() {
     ...db.reels
       .filter(
         (r) =>
-          r.userId === me.id ||
-          db.follows.some((f) => f.a === me.id && f.b === r.userId),
+          !db.blockedUsers.includes(r.userId) &&
+          !db.blockedByUsers.includes(r.userId),
       )
       .map((item) => ({ ...item, kind: "reel" })),
   ].sort((a, b) => b.t - a.t);

@@ -674,6 +674,84 @@ function CommentBox({ p, kind = "post", autoFocus = false }) {
     </div>
   );
 }
+function CommentRow({ comment, itemId, kind = "post", onOpenProfile }) {
+  const { A, byId, me } = useC();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(comment.text);
+  const user = byId(comment.userId);
+  if (!user) return null;
+  const canManage = comment.id && comment.userId === me.id;
+  const saveEdit = () => {
+    if (A.editComment(itemId, comment.id, draft, kind) !== false)
+      setEditing(false);
+  };
+  return (
+    <div className="flex gap-3 py-2">
+      <button
+        onClick={onOpenProfile}
+        aria-label={`${user.username} profilini ochish`}
+      >
+        <Av u={user} s={32} />
+      </button>
+      <div className="min-w-0 flex-1">
+        {editing ? (
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              value={draft}
+              maxLength={500}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") saveEdit();
+                if (event.key === "Escape") setEditing(false);
+              }}
+              aria-label="Izohni tahrirlash"
+              className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-transparent px-2 py-1 text-sm outline-none dark:border-neutral-700"
+            />
+            <button onClick={saveEdit} aria-label="Izohni saqlash">
+              <Check size={18} className="text-green-500" />
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              aria-label="Tahrirlashni bekor qilish"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        ) : (
+          <p className="break-words text-sm">
+            <b className="mr-1">{user.username}</b>
+            {comment.text}
+          </p>
+        )}
+        <div className="mt-0.5 flex items-center gap-3 text-xs text-neutral-500">
+          <span>{ago(comment.t)}</span>
+          {canManage && !editing && (
+            <>
+              <button
+                onClick={() => {
+                  setDraft(comment.text);
+                  setEditing(true);
+                }}
+                aria-label="Izohni tahrirlash"
+                className="font-semibold"
+              >
+                Tahrirlash
+              </button>
+              <button
+                onClick={() => A.deleteComment(itemId, comment.id, kind)}
+                aria-label="Izohni o‘chirish"
+                className="font-semibold text-red-500"
+              >
+                O‘chirish
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 function PostCard({ p }) {
   const { byId, A, me, open } = useC();
   const u = byId(p.userId);
@@ -769,26 +847,6 @@ function PostModal({ id, close }) {
   const p = db.posts.find((x) => x.id === id);
   if (!p) return null;
   const u = byId(p.userId);
-  const row = (x, k) => {
-    const c = byId(x.userId);
-    return (
-      <div key={k} className="flex gap-3 py-2">
-        <button
-          onClick={() => {
-            close();
-            open.profile(c.id);
-          }}
-        >
-          <Av u={c} s={32} />
-        </button>
-        <p className="text-sm">
-          <b className="mr-1">{c.username}</b>
-          {x.text}
-          <span className="block text-xs text-neutral-500">{ago(x.t)}</span>
-        </p>
-      </div>
-    );
-  };
   return (
     <Modal close={close} wide>
       <div className="flex max-h-[92vh] flex-col md:h-[640px] md:flex-row">
@@ -806,8 +864,27 @@ function PostModal({ id, close }) {
             <FollowBtn id={u.id} />
           </div>
           <div className="min-h-[80px] flex-1 overflow-y-auto no-scrollbar">
-            {p.caption && row({ userId: u.id, text: p.caption, t: p.t }, "cap")}
-            {p.comments.map((c) => row(c, c.id))}
+            {p.caption && (
+              <CommentRow
+                comment={{ userId: u.id, text: p.caption, t: p.t }}
+                itemId={p.id}
+                onOpenProfile={() => {
+                  close();
+                  open.profile(u.id);
+                }}
+              />
+            )}
+            {p.comments.map((comment) => (
+              <CommentRow
+                key={comment.id}
+                comment={comment}
+                itemId={p.id}
+                onOpenProfile={() => {
+                  close();
+                  open.profile(comment.userId);
+                }}
+              />
+            ))}
             {!p.caption && !p.comments.length && (
               <p className="py-10 text-center text-neutral-500">
                 Hali izohlar yo‘q.
@@ -1299,27 +1376,6 @@ function ReelComments({ id, close }) {
   if (!r) return null;
   const owner = byId(r.userId);
   const list = (r.comments || []).slice().sort((a, b) => a.t - b.t);
-  const row = (x, k) => {
-    const c = byId(x.userId);
-    if (!c) return null;
-    return (
-      <div key={k} className="flex gap-3 py-2">
-        <button
-          onClick={() => {
-            close();
-            open.profile(c.id);
-          }}
-        >
-          <Av u={c} s={32} />
-        </button>
-        <p className="min-w-0 break-words text-sm">
-          <b className="mr-1">{c.username}</b>
-          {x.text}
-          <span className="block text-xs text-neutral-500">{ago(x.t)}</span>
-        </p>
-      </div>
-    );
-  };
   return (
     <Modal close={close}>
       <div className="flex max-h-[80vh] min-h-[50vh] flex-col text-neutral-900 dark:text-neutral-100">
@@ -1332,8 +1388,27 @@ function ReelComments({ id, close }) {
         <div className="min-h-[120px] flex-1 overflow-y-auto px-4 no-scrollbar">
           {r.caption &&
             owner &&
-            row({ userId: owner.id, text: r.caption, t: r.t }, "cap")}
-          {list.map((c) => row(c, c.id))}
+            <CommentRow
+              comment={{ userId: owner.id, text: r.caption, t: r.t }}
+              itemId={r.id}
+              kind="reel"
+              onOpenProfile={() => {
+                close();
+                open.profile(owner.id);
+              }}
+            />}
+          {list.map((comment) => (
+            <CommentRow
+              key={comment.id}
+              comment={comment}
+              itemId={r.id}
+              kind="reel"
+              onOpenProfile={() => {
+                close();
+                open.profile(comment.userId);
+              }}
+            />
+          ))}
           {!list.length && (
             <p className="py-10 text-center text-neutral-500">
               Hali izohlar yo‘q. Birinchi bo‘lib yozing!
