@@ -64,6 +64,27 @@ def _record_login(request, user):
 	)
 
 
+def _merge_user_comments(existing, incoming, username):
+	existing_by_id = {
+		comment.get('id'): comment for comment in existing if comment.get('id')
+	}
+	comments = {
+		comment_id: comment
+		for comment_id, comment in existing_by_id.items()
+		if comment.get('userId') != username
+	}
+	for comment in incoming:
+		comment_id = comment.get('id')
+		old_comment = existing_by_id.get(comment_id)
+		if (
+			comment_id
+			and comment.get('userId') == username
+			and (old_comment is None or old_comment.get('userId') == username)
+		):
+			comments[comment_id] = comment
+	return list(comments.values())
+
+
 def _merge_owned_media(existing, incoming, username, allow_interactions=False):
 	incoming_by_id = {item.get('id'): item for item in incoming if item.get('id')}
 	merged = []
@@ -77,9 +98,9 @@ def _merge_owned_media(existing, incoming, username, allow_interactions=False):
 					if username in updated.get('likes', []):
 						likes.add(username)
 					updated['likes'] = list(likes)
-					comments = {comment.get('id'): comment for comment in item.get('comments', []) if comment.get('userId') != username}
-					comments.update({comment.get('id'): comment for comment in updated.get('comments', []) if comment.get('userId') == username})
-					updated['comments'] = list(comments.values())
+					updated['comments'] = _merge_user_comments(
+						item.get('comments', []), updated.get('comments', []), username,
+					)
 				merged.append(updated)
 			continue
 
@@ -91,11 +112,9 @@ def _merge_owned_media(existing, incoming, username, allow_interactions=False):
 			if username in new_likes:
 				old_likes.add(username)
 			item['likes'] = list(old_likes)
-			comments = {comment.get('id'): comment for comment in item.get('comments', [])}
-			for comment in updated.get('comments', []):
-				if comment.get('userId') == username:
-					comments[comment.get('id')] = comment
-			item['comments'] = list(comments.values())
+			item['comments'] = _merge_user_comments(
+				item.get('comments', []), updated.get('comments', []), username,
+			)
 		merged.append(item)
 
 	merged.extend(item for item in incoming_by_id.values() if item.get('userId') == username)
@@ -467,6 +486,9 @@ def social_updates(request):
 	]
 	response = Response({
 		'messages': messages,
+		'postInteractions': _social_interactions(payload, 'posts'),
+		'reelInteractions': _social_interactions(payload, 'reels'),
+		'storyInteractions': _social_interactions(payload, 'stories'),
 		'messageReactions': [
 			{'id': str(item.get('id')), 'reactions': item.get('reactions', {})}
 			for item in conversation_messages
@@ -492,6 +514,24 @@ def social_updates(request):
 	return response
 
 
+def _social_interactions(payload, key):
+	items = payload.get(key, [])
+	if not isinstance(items, list):
+		return []
+	interactions = []
+	for item in items:
+		if not isinstance(item, dict) or not item.get('id'):
+			continue
+		likes = item.get('likes', [])
+		comments = item.get('comments', [])
+		interactions.append({
+			'id': str(item['id']),
+			'likes': [like for like in likes if isinstance(like, str)] if isinstance(likes, list) else [],
+			'comments': [comment for comment in comments if isinstance(comment, dict)] if isinstance(comments, list) else [],
+		})
+	return interactions
+
+
 @api_view(['POST'])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated])
@@ -499,12 +539,12 @@ def social_fast_action(request):
 	data = request.data if isinstance(request.data, dict) else {}
 	action = data.get('action')
 	username = request.user.username
-	if action not in ('follow', 'unfollow', 'message', 'read', 'read-notifs', 'call-log', 'react', 'voice-duration'):
+	if action not in ('follow', 'unfollow', 'message', 'read', 'read-notifs', 'call-log', 'react', 'voice-duration', 'like', 'comment', 'edit-comment', 'delete-comment'):
 		return Response({'error': 'Amal qo‘llab-quvvatlanmaydi.'}, status=status.HTTP_400_BAD_REQUEST)
 	if action not in ('read', 'read-notifs', 'call-log', 'voice-duration') and not is_service_open() and not _is_admin_user(request.user):
 		return _closed_response()
 	restriction = _active_restriction(request.user)
-	if restriction and action in ('follow', 'unfollow', 'message', 'react'):
+	if restriction and action in ('follow', 'unfollow', 'message', 'react', 'like', 'comment', 'edit-comment'):
 		return Response({'error': 'Admin cheklovi faol.'}, status=status.HTTP_403_FORBIDDEN)
 	with transaction.atomic():
 		SocialState.objects.get_or_create(pk=1)
@@ -512,7 +552,92 @@ def social_fast_action(request):
 		payload = state.payload or {}
 		follows = payload.setdefault('follows', [])
 		messages = payload.setdefault('messages', [])
-		if action in ('follow', 'unfollow'):
+		if action in ('like', 'comment', 'edit-comment', 'delete-comment'):
+			kind = data.get('kind')
+			content_key = {
+				'post': 'posts',
+				'reel': 'reels',
+				'story': 'stories',
+			}.get(kind)
+			if not content_key or (action != 'like' and kind == 'story'):
+				return Response({'error': 'Kontent turi noto‘g‘ri.'}, status=status.HTTP_400_BAD_REQUEST)
+			item_id = str(data.get('itemId') or '')
+			items = payload.setdefault(content_key, [])
+			item = next((entry for entry in items if str(entry.get('id')) == item_id), None)
+			if not item:
+				return Response({'error': 'Kontent topilmadi.'}, status=status.HTTP_404_NOT_FOUND)
+			owner = _name(item.get('userId'))
+			if owner and _users_block_each_other(username, owner):
+				return Response({'error': 'Bloklangan foydalanuvchi kontentiga amal qilib bo‘lmaydi.'}, status=status.HTTP_403_FORBIDDEN)
+
+			if action == 'like':
+				likes = item.get('likes', [])
+				likes = likes if isinstance(likes, list) else []
+				liked = username in likes
+				item['likes'] = [like for like in likes if like != username]
+				if not liked:
+					item['likes'].append(username)
+					if owner and owner != username:
+						payload.setdefault('notifs', []).append({
+							'id': uuid.uuid4().hex, 'to': owner, 'from': username,
+							'type': 'story_like' if kind == 'story' else 'like',
+							'storyId' if kind == 'story' else 'postId': item_id,
+							't': int(timezone.now().timestamp() * 1000), 'read': False,
+						})
+			else:
+				comments = item.get('comments', [])
+				if not isinstance(comments, list):
+					comments = []
+				comment_id = str(data.get('commentId') or '')
+				comment = next((entry for entry in comments if str(entry.get('id')) == comment_id), None)
+				if action == 'comment':
+					text = data.get('text')
+					if not isinstance(text, str) or not text.strip() or len(text.strip()) > 500:
+						return Response({'error': 'Izoh 1–500 belgi bo‘lishi kerak.'}, status=status.HTTP_400_BAD_REQUEST)
+					error = validate_text(text.strip(), 'Izoh')
+					if error:
+						return Response({'error': error}, status=status.HTTP_400_BAD_REQUEST)
+					if not comment_id or len(comment_id) > 128 or any(str(entry.get('id')) == comment_id for entry in comments):
+						return Response({'error': 'Izoh identifikatori noto‘g‘ri.'}, status=status.HTTP_409_CONFLICT)
+					comment = {
+						'id': comment_id, 'userId': username, 'text': text.strip(),
+						't': int(timezone.now().timestamp() * 1000),
+					}
+					comments.append(comment)
+					item['comments'] = comments
+					if owner and owner != username:
+						payload.setdefault('notifs', []).append({
+							'id': uuid.uuid4().hex, 'to': owner, 'from': username,
+							'type': 'comment', 'reelId' if kind == 'reel' else 'postId': item_id,
+							'text': comment['text'], 't': comment['t'], 'read': False,
+						})
+				elif not comment or comment.get('userId') != username:
+					return Response({'error': 'Izoh topilmadi yoki sizga tegishli emas.'}, status=status.HTTP_404_NOT_FOUND)
+				elif action == 'edit-comment':
+					text = data.get('text')
+					if not isinstance(text, str) or not text.strip() or len(text.strip()) > 500:
+						return Response({'error': 'Izoh 1–500 belgi bo‘lishi kerak.'}, status=status.HTTP_400_BAD_REQUEST)
+					error = validate_text(text.strip(), 'Izoh')
+					if error:
+						return Response({'error': error}, status=status.HTTP_400_BAD_REQUEST)
+					comment['text'] = text.strip()
+				else:
+					item['comments'] = [
+						entry for entry in comments
+						if str(entry.get('id')) != comment_id or entry.get('userId') != username
+					]
+			state.payload = payload
+			state.save(update_fields=['payload', 'updated_at'])
+			response = Response({
+				'saved': True,
+				'itemId': item_id,
+				'kind': kind,
+				'likes': item.get('likes', []),
+				'comments': item.get('comments', []),
+			})
+			response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+			return response
+		elif action in ('follow', 'unfollow'):
 			target = User.objects.filter(username=_name(data.get('username'))).first()
 			if not target or target == request.user:
 				return Response({'error': 'Foydalanuvchi topilmadi.'}, status=status.HTTP_404_NOT_FOUND)

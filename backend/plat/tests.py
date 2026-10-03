@@ -267,6 +267,72 @@ class RegistrationTests(APITestCase):
 		reel = next(item for item in response.data['reels'] if item['id'] == 'r1')
 		self.assertEqual({comment['id'] for comment in reel['comments']}, {'c0', 'c1'})
 
+	def test_users_can_edit_and_delete_their_comments_on_other_users_posts_and_reels(self):
+		commenter = User.objects.create_user(username='commenter', password='password123')
+		User.objects.create_user(username='creator', password='password123')
+		self.client.force_login(commenter)
+		SocialState.objects.create(payload={
+			'posts': [{
+				'id': 'p1', 'userId': 'creator', 'likes': [],
+				'comments': [
+					{'id': 'own-post-comment', 'userId': 'commenter', 'text': 'Old post comment'},
+					{'id': 'other-post-comment', 'userId': 'other', 'text': 'Keep this post comment'},
+				],
+			}],
+			'reels': [{
+				'id': 'r1', 'userId': 'creator', 'likes': [],
+				'comments': [
+					{'id': 'own-reel-comment', 'userId': 'commenter', 'text': 'Delete this reel comment'},
+					{'id': 'other-reel-comment', 'userId': 'other', 'text': 'Keep this reel comment'},
+				],
+			}],
+		})
+
+		response = self.client.put('/plat/social/', {
+			'posts': [{
+				'id': 'p1', 'userId': 'creator', 'likes': [],
+				'comments': [
+					{'id': 'own-post-comment', 'userId': 'commenter', 'text': 'Edited post comment'},
+				],
+			}],
+			'reels': [{
+				'id': 'r1', 'userId': 'creator', 'likes': [],
+				'comments': [
+					{'id': 'other-reel-comment', 'userId': 'other', 'text': 'Keep this reel comment'},
+				],
+			}],
+		}, format='json')
+
+		self.assertEqual(response.status_code, 200)
+		state = SocialState.objects.get(pk=1).payload
+		post_comments = {comment['id']: comment for comment in state['posts'][0]['comments']}
+		reel_comments = {comment['id']: comment for comment in state['reels'][0]['comments']}
+		self.assertEqual(post_comments['own-post-comment']['text'], 'Edited post comment')
+		self.assertIn('other-post-comment', post_comments)
+		self.assertNotIn('own-reel-comment', reel_comments)
+		self.assertIn('other-reel-comment', reel_comments)
+
+	def test_users_cannot_edit_or_delete_another_users_comment(self):
+		commenter = User.objects.create_user(username='commenter', password='password123')
+		User.objects.create_user(username='creator', password='password123')
+		self.client.force_login(commenter)
+		SocialState.objects.create(payload={'posts': [{
+			'id': 'p1', 'userId': 'creator', 'likes': [],
+			'comments': [{'id': 'other-comment', 'userId': 'other', 'text': 'Original'}],
+		}]})
+
+		response = self.client.put('/plat/social/', {
+			'posts': [{
+				'id': 'p1', 'userId': 'creator', 'likes': [],
+				'comments': [{'id': 'other-comment', 'userId': 'commenter', 'text': 'Tampered'}],
+			}],
+		}, format='json')
+
+		self.assertEqual(response.status_code, 200)
+		comment = SocialState.objects.get(pk=1).payload['posts'][0]['comments'][0]
+		self.assertEqual(comment['text'], 'Original')
+		self.assertEqual(comment['userId'], 'other')
+
 	def test_reel_comment_too_long_is_rejected(self):
 		commenter = User.objects.create_user(username='long_commenter', password='password123')
 		self.client.force_login(commenter)
@@ -543,6 +609,65 @@ class RegistrationTests(APITestCase):
 		self.assertEqual(self.client.get('/plat/social/updates/?since=1000').data['messageReactions'], [
 			{'id': 'react-message', 'reactions': {}},
 		])
+
+	def test_fast_post_and_reel_interactions_sync_without_returning_media(self):
+		owner = User.objects.create_user(username='interaction_owner', password='password123')
+		liker = User.objects.create_user(username='interaction_liker', password='password123')
+		SocialState.objects.create(payload={
+			'posts': [{
+				'id': 'interaction-post', 'userId': owner.username,
+				'likes': [], 'comments': [],
+			}],
+			'reels': [{
+				'id': 'interaction-reel', 'userId': owner.username,
+				'media': 'data:video/mp4;base64,GkXfo4GB', 'likes': [], 'comments': [],
+			}],
+		})
+		self.client.force_login(liker)
+
+		for _ in range(2):
+			response = self.client.post('/plat/social/fast/', {
+				'action': 'like', 'kind': 'post', 'itemId': 'interaction-post',
+			}, format='json')
+			self.assertEqual(response.status_code, 200)
+		response = self.client.post('/plat/social/fast/', {
+			'action': 'like', 'kind': 'post', 'itemId': 'interaction-post',
+		}, format='json')
+		self.assertEqual(response.data['likes'], [liker.username])
+
+		response = self.client.post('/plat/social/fast/', {
+			'action': 'like', 'kind': 'reel', 'itemId': 'interaction-reel',
+		}, format='json')
+		self.assertEqual(response.data['likes'], [liker.username])
+		response = self.client.post('/plat/social/fast/', {
+			'action': 'comment', 'kind': 'reel', 'itemId': 'interaction-reel',
+			'commentId': 'fast-comment', 'text': 'Zo‘r video',
+		}, format='json')
+		self.assertEqual(response.status_code, 200)
+		response = self.client.post('/plat/social/fast/', {
+			'action': 'edit-comment', 'kind': 'reel', 'itemId': 'interaction-reel',
+			'commentId': 'fast-comment', 'text': 'Yaxshi video',
+		}, format='json')
+		self.assertEqual(response.data['comments'][0]['text'], 'Yaxshi video')
+
+		self.client.force_login(owner)
+		updates = self.client.get('/plat/social/updates/?since=0')
+		self.assertEqual(updates.data['postInteractions'][0]['likes'], [liker.username])
+		self.assertEqual(updates.data['reelInteractions'][0]['likes'], [liker.username])
+		self.assertEqual(updates.data['reelInteractions'][0]['comments'][0]['text'], 'Yaxshi video')
+		self.assertNotIn('media', updates.data['reelInteractions'][0])
+		self.assertEqual(
+			[item['type'] for item in updates.data['notifs']],
+			['like', 'like', 'like', 'comment'],
+		)
+
+		self.client.force_login(liker)
+		response = self.client.post('/plat/social/fast/', {
+			'action': 'delete-comment', 'kind': 'reel', 'itemId': 'interaction-reel',
+			'commentId': 'fast-comment',
+		}, format='json')
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['comments'], [])
 
 	def test_measured_voice_duration_replaces_inflated_metadata(self):
 		listener = User.objects.create_user(username='duration_listener', password='password123')
